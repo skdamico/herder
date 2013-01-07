@@ -1,8 +1,8 @@
 require 'sinatra'
-require 'grocer'
 require 'geokit'
 require 'active_record'
 require 'uri'
+require 'apns'
  
 db = URI.parse(ENV['DATABASE_URL'] || 'postgres://localhost/herder')
 ActiveRecord::Base.establish_connection(
@@ -31,36 +31,20 @@ class User < ActiveRecord::Base
   end
 end
 
-class App
-  attr_accessor :pusher_dev, :pusher_prod
-end
-
 class Herder < Sinatra::Base
 
   configure do
-    app = App.new
-    if File.exist?("#{Dir.pwd}/config/development.pem")
-      puts "Found development pem file"
-      app.pusher_dev = Grocer.pusher(
-        certificate: "#{Dir.pwd}/config/development.pem",
-        passphrase:  "herder",
-        gateway:     "gateway.sandbox.push.apple.com",
-      )
-    end
-    if File.exist?("#{Dir.pwd}/config/production.pem")
-      puts "Found production pem file"
-      app.pusher_prod = Grocer.pusher(
-        certificate: "#{Dir.pwd}/config/production.pem",   # required
-        passphrase:  "herder",
-        gateway:     "gateway.push.apple.com",
-      )
+    if File.exist?("#{Dir.pwd}/config/cert.pem")
+      puts "Found pem file"
+      APNS.pem  = "#{Dir.pwd}/config/cert.pem"
+      APNS.pass = "herder"
+      APNS.cache_connections = true
     end
     # setup location
     Geokit::default_formula = :sphere
     Geokit::default_units = :kms
     Geokit::Geocoders::google = "AIzaSyC_7Re3Idfb1YCaC8PWeEBv3Q1PE-_-EF0"
 
-    set :app, app
     set :loc_seatme, Geokit::LatLng.new(37.79125, -122.40128)
   end
 
@@ -98,24 +82,17 @@ class Herder < Sinatra::Base
       # user is only a short distance away
       # send notifications that they have arrived
 
-      # get correct pusher depending on environment
-      pusher = settings.app.pusher_prod
-      if (data.has_key?("environment") && data["environment"] == "development")
-        pusher = settings.app.pusher_dev
-      end
-
       # find all users except this
       all_other_users = User.find(:all, :conditions => ["id != ?", user.id])
 
       # make a notification for each user and push it out
       alert = user.username + " is here!"
 
+      APNS.establish_notification_connection
       all_other_users.each do |u|
-        notification = Grocer::Notification.new do |n|
-          n.device_token = u.device_token
-          n.alert = alert
+        if APNS.has_notification_connection?
+          APNS.send_notification(u.device_token, alert)
         end
-        pusher.push(notification)
       end
 
       user.has_arrived = true
