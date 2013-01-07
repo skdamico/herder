@@ -56,7 +56,7 @@ class Herder < Sinatra::Base
       )
     end
     # setup location
-    Geokit::default_formula = :flat
+    Geokit::default_formula = :sphere
     Geokit::default_units = :kms
     Geokit::Geocoders::google = "AIzaSyC_7Re3Idfb1YCaC8PWeEBv3Q1PE-_-EF0"
 
