@@ -1,67 +1,126 @@
-require 'sinatra/base'
-require 'sinatra/json'
+require 'sinatra'
 require 'grocer'
 require 'geokit'
+require 'active_record'
  
+if defined?(ENV['RACK_ENV']) && ENV['RACK_ENV'] == "production"
+  dbconfig = YAML.load(File.read('config/database.yml'))
+  ActiveRecord::Base.establish_connection dbconfig['production']
+  RAILS_ENV = "production"
+  RAILS_ROOT = File.expand_path("#{File.dirname(__FILE__)}")
+else
+  dbconfig = YAML.load(File.read("config/local-database.yml"))
+  ActiveRecord::Base.establish_connection(dbconfig)
+
+  RAILS_ENV = "production"
+  RAILS_ROOT = File.dirname(__FILE__)
+end
+
+
+class User < ActiveRecord::Base
+
+  def as_json(options={})
+    result = {
+      :deviceToken => self.device_token,
+      :username => self.username,
+      :latitude => self.latitude,
+      :longitude => self.longitude,
+      #:timestamp => self.timestamp
+      :has_arrived => self.has_arrived,
+    }
+    return result
+  end
+end
+
 class App
   attr_accessor :pusher_dev, :pusher_prod
 end
- 
- 
-class Notify < Sinatra::Base
- 
+
+class Herder < Sinatra::Base
+
   configure do
     app = App.new
-    if File.exist?("#{Dir.pwd}/cert/development.pem")
+    if File.exist?("#{Dir.pwd}/config/development.pem")
       puts "Found development pem file"
       app.pusher_dev = Grocer.pusher(
-        certificate: "#{Dir.pwd}/cert/development.pem",
+        certificate: "#{Dir.pwd}/config/development.pem",
+        passphrase:  "herder",
         gateway:     "gateway.sandbox.push.apple.com",
       )
     end
-    if File.exist?("#{Dir.pwd}/cert/production.pem")
+    if File.exist?("#{Dir.pwd}/config/production.pem")
       puts "Found production pem file"
       app.pusher_prod = Grocer.pusher(
-        certificate: "#{Dir.pwd}/cert/production.pem",   # required
+        certificate: "#{Dir.pwd}/config/production.pem",   # required
+        passphrase:  "herder",
         gateway:     "gateway.push.apple.com",
       )
     end
+    # setup location
+    Geokit::default_formula = :flat
+    Geokit::Geocoders::google = "AIzaSyC_7Re3Idfb1YCaC8PWeEBv3Q1PE-_-EF0"
+
+    set :app, app
+    set :loc_seatme, Geokit::LatLng.new(37.7912817, -122.4012656)
   end
 
   get '/' do
     return 403
   end
 
-  post '/send' do
+  get '/location' do
+    users = User.find(:all)
+    return users.to_json
+  end
+
+  # update existing user with location or create new user
+  post '/location' do
     data = JSON.parse(request.body.read)
-    puts data
-
-    # `device_token` and either `alert` or `badge` are required.
-    pusher = app.pusher_prod
-    if (data.has_key?("environment") && data["environment"] == "development")
-      pusher = app.pusher_dev
+    if not data.has_key?("deviceToken")
+      return 400  # bad request
     end
 
-    notification = Grocer::Notification.new(
-      device_token: data["notification"]["device_token"],
-      alert:data["notification"]["alert"],
-      badge:data["notification"]["badge"],
-      sound:data["notification"]["sound"]
-    )
+    user = User.find_or_initialize_by_device_token(:device_token => data["deviceToken"])
+    user.username = data["username"]
+    user.latitude = data["latitude"]
+    user.longitude = data["longitude"]
+    user.save
 
-    if pusher.nil?
-      return 500
+    if user.has_arrived
+      return 200
+    end
+    # do location queries
+    loc = Geokit::LatLng.new(user.latitude, user.longitude)
+    distance = loc.distance_to(settings.loc_seatme)
+    puts distance
+    if distance <= 0.01
+      # user is only a short distance away
+      # send notifications that they have arrived
+
+      # get correct pusher depending on environment
+      pusher = settings.app.pusher_prod
+      if (data.has_key?("environment") && data["environment"] == "development")
+        pusher = settings.app.pusher_dev
+      end
+
+      # find all users except this
+      all_other_users = User.find(:all, :conditions => ["id != ?", user.id])
+
+      # make a notification for each user and push it out
+      alert = user.username + " is here!"
+
+      all_other_users.each do |u|
+        notification = Grocer::Notification.new do |n|
+          n.device_token = u.device_token
+          n.alert = alert
+        end
+        pusher.push(notification)
+      end
+
+      user.has_arrived = true
+      user.save
     end
 
-    pusher.push(notification)
-
-    return 200
   end
 
-end
-
-class HerderLocation < Sinatra::Base
-  get '/locations' do
-    
-  end
 end
