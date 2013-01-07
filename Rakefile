@@ -1,13 +1,17 @@
 require 'active_record'
 require 'logger'
+require 'uri'
 
-if defined?(ENV['RACK_ENV']) && ENV['RACK_ENV'] == "production"
-  dbconfig = YAML.load(File.read('config/database.yml'))
-  ActiveRecord::Base.establish_connection dbconfig['production']
-else
-  dbconfig = YAML.load(File.read("config/local-database.yml"))
-  ActiveRecord::Base.establish_connection(dbconfig)
-end
+db = URI.parse(ENV['DATABASE_URL'] || 'postgres://127.0.0.1/herder')
+ActiveRecord::Base.establish_connection(
+  :adapter  => db.scheme == 'postgres' ? 'postgresql' : db.scheme,
+  :host     => db.host,
+  :port     => db.port,
+  :username => db.user,
+  :password => db.password,
+  :database => db.path[1..-1],
+  :encoding => 'utf8'
+)
 
 namespace :db do
   desc "Migrate the database"

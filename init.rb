@@ -2,20 +2,18 @@ require 'sinatra'
 require 'grocer'
 require 'geokit'
 require 'active_record'
+require 'uri'
  
-if defined?(ENV['RACK_ENV']) && ENV['RACK_ENV'] == "production"
-  dbconfig = YAML.load(File.read('config/database.yml'))
-  ActiveRecord::Base.establish_connection dbconfig['production']
-  RAILS_ENV = "production"
-  RAILS_ROOT = File.expand_path("#{File.dirname(__FILE__)}")
-else
-  dbconfig = YAML.load(File.read("config/local-database.yml"))
-  ActiveRecord::Base.establish_connection(dbconfig)
-
-  RAILS_ENV = "production"
-  RAILS_ROOT = File.dirname(__FILE__)
-end
-
+db = URI.parse(ENV['DATABASE_URL'] || 'postgres://127.0.0.1/herder')
+ActiveRecord::Base.establish_connection(
+  :adapter  => db.scheme == 'postgres' ? 'postgresql' : db.scheme,
+  :host     => db.host,
+  :port     => db.port,
+  :username => db.user,
+  :password => db.password,
+  :database => db.path[1..-1],
+  :encoding => 'utf8'
+)
 
 class User < ActiveRecord::Base
 
