@@ -1,0 +1,6 @@
+adapter: postgresql
+database: herder
+username: postgres
+password:
+host: localhost
+encoding: utf8
