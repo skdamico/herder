@@ -4,7 +4,7 @@ require 'geokit'
 require 'active_record'
 require 'uri'
  
-db = URI.parse(ENV['DATABASE_URL'] || 'postgres://127.0.0.1/herder')
+db = URI.parse(ENV['DATABASE_URL'] || 'postgres://localhost/herder')
 ActiveRecord::Base.establish_connection(
   :adapter  => db.scheme == 'postgres' ? 'postgresql' : db.scheme,
   :host     => db.host,
@@ -23,7 +23,8 @@ class User < ActiveRecord::Base
       :username => self.username,
       :latitude => self.latitude,
       :longitude => self.longitude,
-      #:timestamp => self.timestamp
+      :distance => self.distance,
+      #:timestamp => self.timestamp,
       :has_arrived => self.has_arrived,
     }
     return result
@@ -56,10 +57,11 @@ class Herder < Sinatra::Base
     end
     # setup location
     Geokit::default_formula = :flat
+    Geokit::default_units = :kms
     Geokit::Geocoders::google = "AIzaSyC_7Re3Idfb1YCaC8PWeEBv3Q1PE-_-EF0"
 
     set :app, app
-    set :loc_seatme, Geokit::LatLng.new(37.7912817, -122.4012656)
+    set :loc_seatme, Geokit::LatLng.new(37.79125, -122.40128)
   end
 
   get '/' do
@@ -87,11 +89,12 @@ class Herder < Sinatra::Base
     if user.has_arrived
       return 200
     end
-    # do location queries
+    # get distance to target in meters
     loc = Geokit::LatLng.new(user.latitude, user.longitude)
     distance = loc.distance_to(settings.loc_seatme)
-    puts distance
-    if distance <= 0.01
+    distance = distance * 1000
+    user.distance = distance
+    if distance <= 50
       # user is only a short distance away
       # send notifications that they have arrived
 
@@ -116,8 +119,9 @@ class Herder < Sinatra::Base
       end
 
       user.has_arrived = true
-      user.save
     end
+
+    user.save
 
   end
 

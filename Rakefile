@@ -2,7 +2,7 @@ require 'active_record'
 require 'logger'
 require 'uri'
 
-db = URI.parse(ENV['DATABASE_URL'] || 'postgres://127.0.0.1/herder')
+db = URI.parse(ENV['DATABASE_URL'] || 'postgres://localhost/herder')
 ActiveRecord::Base.establish_connection(
   :adapter  => db.scheme == 'postgres' ? 'postgresql' : db.scheme,
   :host     => db.host,
