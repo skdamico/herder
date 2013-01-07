@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+HEROKU_APPNAME = 'mighty-lake-3989'
+
+result = %x[ heroku pg:reset DATABASE --confirm #{HEROKU_APPNAME} ]
+abort("Error: Resetting database") if result == false
+puts "Reset database"
+
+result = %x[ heroku run rake db:migrate ]
+abort("Error: Migrating database") if result == false
+puts "Migrated database"
+
+result = %x[ heroku restart ]
+abort("Error: Restarting processes") if result == false
+puts "Processes are restarted"
+puts "Done"
